@@ -25,6 +25,8 @@ class CommandKind(Enum):
     tozone = auto()
     load_playstyle = auto()
     set_yaw = auto()
+    setdeck = auto()
+    getdeck = auto()
 
 class TeleportKind(Enum):
     position = auto()
