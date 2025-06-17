@@ -701,29 +701,36 @@ class VM:
                 self.current_task.ip += 1
 
             case InstructionKind.setdeck:
+                async def setdeck(client: SprintyClient, token: str):
+                    logger.debug(f"Setting {client.title}'s deck...")
+                    async with DeckBuilder(client) as deck_builder:
+                        await deck_builder.set_deck_preset(deck)
                 assert type(instruction.data) == list
                 clients = self._select_players(instruction.data[0])
                 token = instruction.data[1]
                 assert type(token) == str
                 coder = DeckEncoderDecoder(token=token)
                 deck = coder.decode()
-                for client in clients:
-                    logger.debug(f"Setting {client.title}'s deck...")
-                    async with DeckBuilder(client) as deck_builder:
-                        await deck_builder.set_deck_preset(deck)
+                async with TaskGroup() as tg:
+                    for client in clients:
+                        tg.create_task(setdeck(client, token))
                 logger.debug("Successfully set decks.")
                 self.current_task.ip += 1
 
             case InstructionKind.getdeck:
-                assert type(instruction.data) == list
-                clients = self._select_players(instruction.data[0])
-                logger.debug("Reading deck...")
-                for client in clients:
+                async def getdeck(client:SprintyClient):
                     async with DeckBuilder(client) as deck_builder:
                         deck = await deck_builder.get_deck_preset()
                         coder = DeckEncoderDecoder(deck=deck)
                         token = coder.encode()
                         logger.debug(f"{client.title}: --> {token} <--");
+
+                assert type(instruction.data) == list
+                clients = self._select_players(instruction.data[0])
+                logger.debug("Reading deck...")
+                async with TaskGroup() as tg:
+                    for client in clients:
+                        tg.create_task(getdeck(client))
                 self.current_task.ip += 1
 
             case InstructionKind.log_single:

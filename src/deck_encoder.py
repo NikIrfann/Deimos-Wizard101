@@ -50,7 +50,6 @@ class DeckEncoderDecoder:
             self._serialize_section(self.deck['item']),
         ])
 
-        print("Final: \n", deck_final)
         compressed = zlib.compress(deck_final.encode())
         self.token = base64.b64encode(compressed).decode()
         return self.token
