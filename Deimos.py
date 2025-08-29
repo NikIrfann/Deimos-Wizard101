@@ -54,7 +54,8 @@ gui.PySimpleGUI.SUPPRESS_RAISE_KEY_ERRORS = True
 
 cMessageBox = ctypes.windll.user32.MessageBoxW
 
-tool_version: str = '3.11.1'
+
+tool_version: str = '3.11.2'
 tool_name: str = 'Deimos'
 tool_author: str = 'Deimos-Wizard101'
 repo_name: str = tool_name + '-Wizard101'
@@ -1892,7 +1893,6 @@ async def main():
 
 	async def zone_check_loop():
 		zone_blacklist = [
-			'WizardCity-TreasureTower-WC_TT',
 			'Raids',
 			'Battlegrounds'
 		]
@@ -1909,14 +1909,7 @@ async def main():
 			'WizardCity/AZ_Arena',
 			'WizardCity/PA_Arena',
 			'WizardCity/GH_Arena',
-			'WizardCity/LM_Arena',
-			'WizardCity/TreasureTower/WC_TT01_Balance_L01',
-    			'WizardCity/TreasureTower/WC_TT01_Death_L01',
-    			'WizardCity/TreasureTower/WC_TT01_Fire_L01',
-    			'WizardCity/TreasureTower/WC_TT01_Ice_L01',
-    			'WizardCity/TreasureTower/WC_TT01_Life_L01',
-    			'WizardCity/TreasureTower/WC_TT01_Myth_L01',
-    			'WizardCity/TreasureTower/WC_TT01_Storm_L01'
+			'WizardCity/LM_Arena'
 
 		]
 
