@@ -614,22 +614,30 @@ def show_ui_tree_popup(ui_tree_content):
 
     UITreeWindow.close()
 
-def show_entity_list_popup(entity_list_content):
+def show_entity_list_popup(entity_list_content, send_queue: queue.Queue, search_term: str = ""): 
     entity_list = entity_list_content.splitlines()
 
     layout = [
         [gui.Text('Click the entity needed to copy the name and location to clipboard.')],
         [gui.Listbox(values=entity_list, size=(80, 20), key='-TREE-', enable_events=True)],
-        [gui.Input(key='-SEARCH-', enable_events=True)],
-        [gui.Button('Close')]
+        [gui.Input(default_text=search_term, key='-SEARCH-', enable_events=True)],
+        [gui.Button('Refresh'), gui.Button('Close')]
     ]
     EntityListWindow = gui.Window('Entity List', layout, finalize=True, icon="..\\Deimos-logo.ico", keep_on_top=True)
+
+    if search_term:
+        filtered_list = [line for line in entity_list if search_term.lower() in line.lower()]
+        EntityListWindow['-TREE-'].update(filtered_list)
 
     while True:
         event, values = EntityListWindow.read()
         print(event)
         if event == gui.WINDOW_CLOSED or event == 'Close':
             break
+        elif event == 'Refresh':
+            send_queue.put(GUICommand(GUICommandType.Copy, GUIKeys.copy_entity_list))
+            EntityListWindow.close()
+            return ('refresh', values['-SEARCH-'])
         elif event == '-SEARCH-':
             search_term = values['-SEARCH-'].lower()
             filtered_list = [line for line in entity_list if search_term in line.lower()]
@@ -638,9 +646,10 @@ def show_entity_list_popup(entity_list_content):
             selected_line = values['-TREE-'][0]
             EntityListWindow.close()
             pyperclip.copy(selected_line)
-            return selected_line
+            return ('select', selected_line)
 
     EntityListWindow.close()
+    return ('close', None)
 
 def manage_gui(send_queue: queue.Queue, recv_queue: queue.Queue, gui_theme, gui_text_color, gui_button_color, tool_name, tool_version, gui_on_top, langcode):
     window = create_gui(gui_theme, gui_text_color, gui_button_color, tool_name, tool_version, gui_on_top, langcode)
@@ -650,6 +659,7 @@ def manage_gui(send_queue: queue.Queue, recv_queue: queue.Queue, gui_theme, gui_
     console_sink = logger.add(console_psg, colorize=True)
 
     running = True
+    entity_search_term = ""
 
     while running:
         event, inputs = window.read(timeout=10)
@@ -663,7 +673,7 @@ def manage_gui(send_queue: queue.Queue, recv_queue: queue.Queue, gui_theme, gui_
                     case GUICommandType.Close:
                         running = False
 
-                    case GUICommandType.CloseFromBackend:                        
+                    case GUICommandType.CloseFromBackend:
                         event = gui.WINDOW_CLOSE_ATTEMPTED_EVENT
                         # running = False
                         # if not com.data[0]:
@@ -682,13 +692,18 @@ def manage_gui(send_queue: queue.Queue, recv_queue: queue.Queue, gui_theme, gui_
                         show_ui_tree_popup(com.data)
 
                     case GUICommandType.ShowEntityListPopup:
-                        show_entity_list_popup(com.data)
+                        result_type, result_data = show_entity_list_popup(com.data, send_queue, entity_search_term)
+                        if result_type == 'refresh':
+                            entity_search_term = result_data
+                        else:
+                            entity_search_term = ""
 
                     case GUICommandType.CopyConsole:
                         console_psg.copy()
 
         except queue.Empty:
             pass
+
 
         # Window events
         match event:
