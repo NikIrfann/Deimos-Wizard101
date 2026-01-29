@@ -1,5 +1,6 @@
 import asyncio
 import ctypes
+import logging
 import time
 import traceback
 import requests
@@ -656,14 +657,51 @@ async def click_window_until_closed(client: Client, path):
 
 async def refill_potions(client: Client, mark: bool = False, recall: bool = True, original_zone=None):
     if await client.stats.reference_level() >= 6:
-        # mark if needed
         if mark:
             if await client.zone_name() != 'WizardCity/WC_Hub':
-                original_mana = await client.stats.current_mana()
-                while await client.stats.current_mana() >= original_mana:
-                    logger.debug(f'Client {client.title} - Marking Location')
-                    await client.send_key(Keycode.PAGE_DOWN, 0.1)
-                    await asyncio.sleep(.75)
+                
+                # Handles niche case scenario of teleport just being used before needing to buy potions such as teleporting out of a dungeon
+                recall_timer_window = await get_window_from_path(client.root_window, teleport_mark_recall_timer_path)
+                recall_timer = await recall_timer_window.maybe_text()
+
+                if recall_timer != "":
+                    logger.debug(f'Client {client.title} - Waiting out recall timer before going to buy potions.')
+                    recall_timer = int((recall_timer.replace("<center>", "")).replace("</center>", ""))
+
+                    # Sleeping for most of the timer to avoid spamming calls, then checking it every .1 seconds
+                    if recall_timer > 5:
+                        await asyncio.sleep(recall_timer - 2)
+                    while True:
+                        new_timer = await recall_timer_window.maybe_text()
+                        if new_timer == "" or int((str(new_timer).replace("<center>", "")).replace("</center>", "")) <= 0:
+                            break
+                        await asyncio.sleep(0.1)
+                    await asyncio.sleep(1)
+                
+                recall_window = await get_window_from_path(client.root_window, teleport_mark_recall_path)
+                had_mark_before = False
+                if recall_window and not await recall_window.is_control_grayed():
+                    had_mark_before = True
+                    logger.debug(f'Client {client.title} - Already had a mark before placing a new one')
+
+                # press the mark hotkey once and waiting 2s for recall UI to update
+                await client.send_key(Keycode.PAGE_DOWN, 0.1)
+                await asyncio.sleep(2.0)
+
+                # re-check the recall button
+                recall_window = await get_window_from_path(client.root_window,teleport_mark_recall_path)
+
+                if not recall_window:
+                    logger.debug(f'Client {client.title} - Could not find Recall button after marking')
+                else:
+                    still_has_mark = not await recall_window.is_control_grayed()
+
+                    if had_mark_before and not still_has_mark:
+                        # originally had mark, but lost it after pressing mark
+                        await client.send_key(Keycode.PAGE_DOWN, 0.1)
+                        await asyncio.sleep(1.0)
+                    else:
+                        logger.debug(f'Client {client.title} - Mark state is valid (has_mark={still_has_mark})')
 
         # Navigate to ravenwood
         await navigate_to_ravenwood(client)
@@ -1280,66 +1318,81 @@ async def conditional_await(func, args: dict = {}) -> Any:
     else:
         return func(**args)
 
+# To track seen objects and avoid circular references
+seen_objects = {}
 
-
-async def class_snapshot(instance, recurse: bool = True, current_depth: int = 0, max_depth: int = 25, types_blacklist = (inspect._empty, Window, wizwalker.memory.DynamicWindow), edge_cases: dict = {}):
+async def class_snapshot(
+    instance, 
+    recurse: bool = True, 
+    current_depth: int = 0, 
+    max_depth: int = 25, 
+    types_blacklist: tuple = (inspect._empty, Window, wizwalker.memory.DynamicWindow), 
+    edge_cases: dict = {}
+) -> dict:
     '''Recursively calls every function in a class, async or not. Assembles a dict containing the outputs for these, referenced by function name. Only does functions that have no arguments.'''
     snapshot_data = {}
 
-    if current_depth >= max_depth: #If we have reached or exceeded max depth, return an empty dict
+    # Limit recursion depth to prevent stack overflow
+    if current_depth >= max_depth:  # If we have reached or exceeded max depth, return an empty dict
         return snapshot_data
 
-    if not recurse and current_depth: #If we have any depth and we are not recursing, return an empty dict
-        return snapshot_data
+    # Avoid recursion on already processed objects (handles circular references)
+    if id(instance) in seen_objects:
+        return {}
 
-    current_depth += 1 #Tick our current depth
+    seen_objects[id(instance)] = True  # Mark this object as processed
 
-    valid_types = (int, float, bool, str, Enum, type(None)) #valid built-in types
-    iter_types = (list, dict, set, tuple) #types we can iterate through in a useful manner, as strings are iterable
+    current_depth += 1  # Increment the current depth
 
-    def _is_valid_type(obj, types = valid_types):
-        #Returns True if the object supplied's type is apart of the list of supplied valid types
-        return issubclass(type(obj), types)
+    valid_types = (int, float, bool, str, Enum, type(None))  # Valid built-in types
+    iter_types = (list, dict, set, tuple)  # Types we can iterate through in a useful manner
+
+    def _is_valid_type(obj, types=valid_types):
+        # Returns True if the object supplied's type is apart of the list of supplied valid types
+        return isinstance(obj, types)
 
     def _is_return_type_blacklisted(func, types: tuple = types_blacklist):
         return_type = typing.get_type_hints(func).get("return")
         if isinstance(return_type, typing._GenericAlias):
             return_type = return_type.__args__[0]
 
-        return issubclass(return_type, types)
+        # Check if return_type is a class before using issubclass
+        if isinstance(return_type, type):
+            return issubclass(return_type, types)
+        return False
 
     for name, func in inspect.getmembers(instance, predicate=inspect.ismethod):
         signature = inspect.signature(func)
         if name in edge_cases:
             edge_case_args = edge_cases[name]
             is_func_compat = True
-
         else:
             edge_case_args = {}
             is_func_compat = (not name.startswith('__') and not len(signature.parameters) and not _is_return_type_blacklisted(func))
 
-        if is_func_compat: # Skip built-in methods and only consider functions without arguments
+        if is_func_compat:  # Skip built-in methods and only consider functions without arguments
             try:
                 output = await conditional_await(func, edge_case_args)
 
-            except Exception as e: #This is sussy, but some functions will inevitably error and we want to continue regardless. - slack
+            except Exception as e:  # Some functions will inevitably error and we want to continue regardless.
+                logging.error(f"Error calling {name}: {e}")
                 snapshot_data[name] = None
                 continue
 
-            if issubclass(type(output), Enum): #Use only the value of the enum
+            if isinstance(output, Enum):  # Use only the value of the enum
                 output = output.value
 
-            if _is_valid_type(output): #If this is just normal data, we can use the output
+            if _is_valid_type(output):  # If this is just normal data, we can use the output
                 snapshot_data[name] = output
 
-            elif _is_valid_type(output, iter_types): #If the output is iterable, check everything inside it
-                if issubclass(type(output), dict): #dict handling, checks both the keys and values
+            elif _is_valid_type(output, iter_types):  # If the output is iterable, check everything inside it
+                if isinstance(output, dict):  # Dict handling, checks both the keys and values
                     output_dict = {}
-                    for o_k, o_v in output:
+                    for o_k, o_v in output.items():
                         snapshot_k = o_k
                         snapshot_v = o_v
 
-                        if not _is_valid_type(o_k): #If this isn't a built-in type, we know it has inner complexity so we recurse
+                        if not _is_valid_type(o_k):  # If this isn't a built-in type, recurse
                             snapshot_k = await class_snapshot(o_k, recurse, current_depth, max_depth, types_blacklist, edge_cases)
 
                         if not _is_valid_type(o_v):
@@ -1350,17 +1403,16 @@ async def class_snapshot(instance, recurse: bool = True, current_depth: int = 0,
                     snapshot_data[name] = output_dict
                     continue
 
-                else:
-                    output_iterable = [] #Iterable output handling, checks the types inside the iterable
+                else:  # Iterable output handling
+                    output_iterable = []
                     for o in output:
                         if _is_valid_type(o):
                             output_iterable.append(o)
-                            continue
+                        else:
+                            o_snapshot = await class_snapshot(o, recurse, current_depth, max_depth, types_blacklist, edge_cases)
+                            output_iterable.append(o_snapshot)
 
-                        o_snapshot = await class_snapshot(o, recurse, current_depth, max_depth, types_blacklist, edge_cases)
-                        output_iterable.append(o_snapshot)
-
-                snapshot_data[name] = type(output)(output_iterable) #Mirror the output type of the iterable so it's preserved in the snapshot
+                    snapshot_data[name] = type(output)(output_iterable)
 
             else:
                 snapshot_data[name] = await class_snapshot(output, recurse, current_depth, max_depth, types_blacklist, edge_cases)

@@ -54,8 +54,7 @@ gui.PySimpleGUI.SUPPRESS_RAISE_KEY_ERRORS = True
 
 cMessageBox = ctypes.windll.user32.MessageBoxW
 
-
-tool_version: str = '3.11.2'
+tool_version: str = '3.12.3'
 tool_name: str = 'Deimos'
 tool_author: str = 'Deimos-Wizard101'
 repo_name: str = tool_name + '-Wizard101'
@@ -1281,10 +1280,13 @@ async def main():
 		gui_thread.daemon = True
 		gui_thread.start()
 		enemy_stats = []
+		current_pos = None
+		current_rotation = None
 		while True:
 			if walker.clients and foreground_client:
 				current_zone = await foreground_client.zone_name()
-				try:
+				#try:
+				if current_zone and not await foreground_client.is_loading():
 					if await foreground_client.game_client.is_freecam():
 						camera = await foreground_client.game_client.free_camera_controller()
 						current_pos = await camera.position()
@@ -1311,9 +1313,12 @@ async def main():
 								current_rotation.yaw = trunc(current_rotation.yaw, 3)
 								current_rotation.pitch = trunc(current_rotation.pitch, 3)
 								current_rotation.roll = trunc(current_rotation.roll, 3)
+				else:
+					current_pos: XYZ = XYZ(0, 0, 0)
+					current_rotation: Orient = Orient(0, 0, 0)
 						
-				except wizwalker.errors.MemoryReadError as e:
-					await handle_coord_error(e)
+				#except wizwalker.errors.MemoryReadError as e:
+				#	await handle_coord_error(e)
 					
 				gui_send_queue.put(deimosgui.GUICommand(deimosgui.GUICommandType.UpdateWindow, ('Title', f'Client: {foreground_client.title}')))
 				gui_send_queue.put(deimosgui.GUICommand(deimosgui.GUICommandType.UpdateWindow, ('Zone', f'Zone: {current_zone}')))
@@ -1960,7 +1965,7 @@ async def main():
 		except:
 			pass
 		cMessageBox(None, "Deimos has encountered a fatal error (Code 0C24). Please contact slackaduts on discord for more info.", "Deimos error", 0x10 | 0x1000)
-		quit(0)
+		sys.exit(0)
 
 
 	async def hooking_logic(default_logic : bool = False):
@@ -1985,23 +1990,43 @@ async def main():
 			logger.debug('Activating hooks for all clients, please be patient...')
 			try:
 				await asyncio.gather(*[p.activate_hooks() for p in walker.clients])
-			except wizwalker.errors.PatternFailed:
-				logger.critical('Error occured in the hooking process. Please restart all Wizard101 clients.')
+			except wizwalker.errors.PatternFailed as e:
+				logger.critical(f"Error occured in the hooking process. {e}")
 
 				clients_check = walker.clients
 				async def refresh_clients(delay: float = 0.5):
 					walker.remove_dead_clients()
 					walker.get_new_clients()
 					await asyncio.sleep(delay)
+				async def gui_task_checker():
+					if gui_task.done():
+						exception = gui_task.exception()
+						match exception:
+							case None:
+								pass
+							case deimosgui.ToolClosedException():
+								logger.info("Tool close triggered by user.")
+							case _:
+								logger.exception(exception)
+						for p in walker.clients:
+							try:
+								p.title = 'Wizard101'
+								await p.close()
+							except:
+								pass
+						sys.exit(0)
 				logger.debug('Waiting for all Wizard101 clients to be closed...')
 				while walker.clients:
+					await gui_task_checker()
 					await refresh_clients()
 					await asyncio.sleep(0.1)
 				logger.debug('Waiting for all previous Wizard101 clients to be reopened...')
 				while not walker.clients:
+					await gui_task_checker()
 					await refresh_clients()
 					await asyncio.sleep(0.1)
 				while len(walker.clients) != len(clients_check):
+					await gui_task_checker()
 					await refresh_clients()
 					await asyncio.sleep(0.1)
 				await hooking_logic()
@@ -2129,7 +2154,7 @@ async def main():
 						pass
 
 	finally:
-		tasks: List[asyncio.Task] = [ban_watcher_task, foreground_client_switching_task, combat_task, assign_foreground_clients_task, dialogue_task, anti_afk_loop_task, sigil_task, questing_task, in_combat_loop_task, questing_leader_combat_detection_task, gui_task, potion_usage_loop_task, rpc_loop_task, drop_logging_loop_task, zone_check_loop_task, anti_afk_questing_loop_task]
+		tasks: List[asyncio.Task] = [ban_watcher_task, foreground_client_switching_task, combat_task, assign_foreground_clients_task, dialogue_task, anti_afk_loop_task, sigil_task, questing_task, in_combat_loop_task, questing_leader_combat_detection_task, gui_task, potion_usage_loop_task, rpc_loop_task, drop_logging_loop_task, zone_check_loop_task, anti_afk_questing_loop_task, speed_task]
 		for task in tasks:
 			if task is not None and not task.cancelled():
 				task.cancel()
