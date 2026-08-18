@@ -13,7 +13,7 @@ from typing import List, Dict, Tuple
 import re
 
 
-default_config = "any<trap & inc_damage>[potent] @ enemy | any<trap & inc_damage & aoe>[potent] | any<blade & out_damage>[sharp] @ self | any<blade & out_damage & aoe>[sharp] | any<global> | any<aura & out_damage> | any<shadow> | any<damage & aoe>[any<mod_damage>] | any<damage>[any<mod_damage>] @ enemy"
+default_config = 'Mass | "Detonate All 200 - Amulet" | Willcast @ enemy & Willcast @ boss & "Pet - Sharpened Blade" @ spell(any<blade>) & "Sharpened Blade - Amulet" @ spell(any<blade>) & Sharpened @ spell(any<blade>) & Sharpened @ spell(any<blade>) & "Potent Trap - Amulet" @ spell("Feint") & "Potent Trap - Tear" @ spell("Feint") & "Potent Trap - Tear" @ spell(any<trap>) & "Potent Trap - Amulet" @ spell(any<trap>) & Potent @ spell(any<trap>) & Potent @ spell(any<trap>) & any<mod_damage> @ spell(any<damage>) & any<mod_damage> @ spell(any<damage>) & any<blade> @ self | any<trap> @ boss | any<trap> @ enemy | any<aura> | any<global> | any<damage&aoe> @ aoe | any<damage> @ boss | any<damage> @ enemy | any<damage> @ enemies | ?(self.health < 25%) any<heal> @ self'
 # "any<damage>[epic] @ enemy | any<damage>[colossal] @ enemy | any<damage>[gargantuan] @ enemy | any<damage>[monstrous] @ enemy | any<damage>[giant] @ enemy | any<damage>[strong] @ enemy"
 
 class StrCombatConfigProvider(CombatConfigProvider):
@@ -51,7 +51,7 @@ def delegate_combat_configs(input_data: str, fallback_clients: int = 1, line_sep
     client_configs: Dict[int, str] = {}
 
     #Match number in "###pX", where X is a number. This determines the client index. This also strips all whitespace.
-    pattern = re.compile(r'###\sp\s*(\d+)')
+    pattern = re.compile(r'###\s*p\s*(\d+)')
     client_to_match = -1
     local_configs: List[str] = []
 

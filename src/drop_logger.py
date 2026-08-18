@@ -60,7 +60,7 @@ async def get_current_active_chat_channel(client: Client) -> List[str]:
         if await is_visible_by_path(client, window_path):
             channel_window = await get_window_from_path(client.root_window, window_path)
             if channel_window:
-                if await channel_window.read_value_from_offset(872, Primitive.bool): # value for if the channel is active
+                if await channel_window.read_value_from_offset(1016, Primitive.bool): # value for if the channel is active
                     return window_path
     
     return None # this should not happen
@@ -141,4 +141,4 @@ async def logging_loop(client: Client):
                     new_drops_list = new_drops.split('\n')
                     if len(new_drops_list) > 1 and not new_drops_list[0]:
                         new_drops_list.pop(0)
-                    [logger.debug(f'{client.title} - New Drop: {drop}') for drop in new_drops_list]
+                    [logger.debug(f'{client.title} New Drop: {drop}') for drop in new_drops_list]
